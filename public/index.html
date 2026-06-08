@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HL Hot Score Demo</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Hyperliquid Heat Index</p>
+          <h1>热门不是大币榜，是市场正在把注意力堆上去的合约。</h1>
+          <p class="hero-text">
+            这版 demo 只使用 HL 公开可得的数据，把 24h 成交额、持仓规模、交易笔数、近 4
+            小时加速度、价差深度和价格动量做成一个可解释的热度分。
+          </p>
+        </div>
+        <div class="hero-card">
+          <div class="pulse"></div>
+          <div class="hero-stat">
+            <span>Data Source</span>
+            <strong id="sourceCount">3 streams</strong>
+          </div>
+          <div class="hero-stat">
+            <span>Universe</span>
+            <strong id="candidateCount">--</strong>
+          </div>
+          <div class="hero-stat">
+            <span>Updated</span>
+            <strong id="updatedAt">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="panel strategy-panel">
+          <div class="panel-head">
+            <p class="kicker">Score logic</p>
+            <h2>默认策略</h2>
+          </div>
+          <p id="strategySummary" class="summary"></p>
+          <div class="formula" id="formula"></div>
+          <div class="filters" id="filters"></div>
+
+          <div class="panel-head compact">
+            <p class="kicker">Tuning</p>
+            <h3>拖权重看榜单怎么变</h3>
+          </div>
+          <div id="sliders" class="sliders"></div>
+
+          <div class="actions">
+            <button id="refreshBtn" class="primary">刷新真实数据</button>
+            <button id="resetBtn" class="ghost">恢复默认权重</button>
+          </div>
+        </aside>
+
+        <main class="panel leaderboard-panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Ranked contracts</p>
+              <h2>热门榜</h2>
+            </div>
+            <div class="legend">
+              <span class="legend-bar"></span>
+              <span>热度分</span>
+            </div>
+          </div>
+          <div id="segmentTabs" class="segment-tabs"></div>
+          <div id="leaderboard" class="leaderboard"></div>
+        </main>
+      </section>
+
+      <section class="panel detail-panel">
+        <div class="panel-head">
+          <div>
+            <p class="kicker">Why this coin</p>
+            <h2 id="detailTitle">点击右侧榜单查看拆解</h2>
+          </div>
+        </div>
+        <div id="detailContent" class="detail-content empty">
+          这里会展示单个合约的得分拆解、原始指标和为什么它会被判定为“热门”。
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+  </html>
