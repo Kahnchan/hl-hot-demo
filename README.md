@@ -19,3 +19,5 @@ node server.js --build-static
 ```
 
 This writes `public/data/latest.json`, which the frontend can use on GitHub Pages.
+
+GitHub Pages in this repo is published from `docs/`, which mirrors the static site files.
