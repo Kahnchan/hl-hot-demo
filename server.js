@@ -363,6 +363,8 @@ function computeFromCandles(candles) {
 
   const last4Trades = sum(tradeCounts.slice(-4));
   const last4Volume = sum(volumes.slice(-4));
+  const last1Trade = tradeCounts.at(-1) || 0;
+  const last1Volume = volumes.at(-1) || 0;
   const baseline4Trades = average(
     Array.from({ length: Math.max(tradeCounts.length - 4, 1) }, (_, index) =>
       sum(tradeCounts.slice(index, index + 4)),
@@ -373,6 +375,8 @@ function computeFromCandles(candles) {
       sum(volumes.slice(index, index + 4)),
     ),
   );
+  const baseline1Trades = average(tradeCounts.slice(0, -1));
+  const baseline1Volume = average(volumes.slice(0, -1));
 
   return {
     tradeCount24h: sum(tradeCounts),
@@ -380,6 +384,10 @@ function computeFromCandles(candles) {
       baseline4Volume > 0 ? clamp(last4Volume / baseline4Volume, 0, 4) : 0,
     tradeAcceleration:
       baseline4Trades > 0 ? clamp(last4Trades / baseline4Trades, 0, 4) : 0,
+    burstVolume1h:
+      baseline1Volume > 0 ? clamp(last1Volume / baseline1Volume, 0, 6) : 0,
+    burstTrades1h:
+      baseline1Trades > 0 ? clamp(last1Trade / baseline1Trades, 0, 6) : 0,
     realizedVolatilityPct: standardDeviation(hourlyReturns) * 100,
   };
 }
@@ -431,6 +439,44 @@ function computeConfidenceFactor(row) {
     0.45,
     1,
   );
+}
+
+function computeRisingScore(row) {
+  const volumeGrowthScore = clamp((row.volumeAcceleration - 1) / 2.2, 0, 1);
+  const tradeGrowthScore = clamp((row.tradeAcceleration - 1) / 2.2, 0, 1);
+  const turnoverGrowthScore = clamp((row.turnover24h - 0.8) / 2.2, 0, 1);
+  const burstScore =
+    clamp((row.burstVolume1h - 1) / 3, 0, 1) * 0.55 +
+    clamp((row.burstTrades1h - 1) / 3, 0, 1) * 0.45;
+  const momentumScore = clamp(row.priceChangeAbsPct / 12, 0, 1);
+  const liquidityScore =
+    clamp(row.liquidityDepthUsd / 250_000, 0, 1) * 0.55 +
+    clamp(1 - row.spreadBps / 12, 0, 1) * 0.45;
+  const crowdingPenalty = clamp(row.fundingAbsBps / 8, 0, 1);
+  const noisePenalty = clamp(row.realizedVolatilityPct / 4, 0, 1);
+  const score =
+    volumeGrowthScore * 0.28 +
+    tradeGrowthScore * 0.22 +
+    turnoverGrowthScore * 0.18 +
+    burstScore * 0.14 +
+    momentumScore * 0.1 +
+    liquidityScore * 0.12 -
+    crowdingPenalty * 0.04 -
+    noisePenalty * 0.04;
+
+  return {
+    score: clamp(score, 0, 1),
+    breakdown: {
+      volumeGrowthScore,
+      tradeGrowthScore,
+      turnoverGrowthScore,
+      burstScore,
+      momentumScore,
+      liquidityScore,
+      crowdingPenalty,
+      noisePenalty,
+    },
+  };
 }
 
 async function buildDataset() {
@@ -518,10 +564,18 @@ async function buildDataset() {
       const { score, breakdown } = scoreRow(row, ranges);
       const confidenceFactor = computeConfidenceFactor(row);
       const finalScore = row.marketGroup === 'hip3' ? score * confidenceFactor : score;
+      const risingResult = computeRisingScore(row);
+      const finalRisingScore =
+        row.marketGroup === 'hip3'
+          ? risingResult.score * confidenceFactor
+          : risingResult.score;
       return {
         ...row,
         score: finalScore,
         rawScore: score,
+        risingScore: finalRisingScore,
+        rawRisingScore: risingResult.score,
+        risingBreakdown: risingResult.breakdown,
         confidenceFactor,
         breakdown,
         reasons: buildReason(row),
@@ -577,6 +631,18 @@ async function buildDataset() {
         },
       ],
       hip3Dexes: HIP3_DEXES,
+      views: [
+        {
+          id: 'hot',
+          label: 'Hot',
+          description: '偏综合热度，成交、持仓、换手、盘口一起看。',
+        },
+        {
+          id: 'rising',
+          label: 'Rising',
+          description: '偏增长势头，近4小时加速、1小时爆发和换手抬升优先。',
+        },
+      ],
     },
     rows: ranked,
   };

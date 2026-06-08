@@ -27,6 +27,7 @@ const state = {
   weights: { ...defaultWeights },
   selectedCoin: null,
   segment: 'all',
+  view: 'hot',
 };
 
 function getDataUrl(refresh = false) {
@@ -65,6 +66,9 @@ function sliderConfig(key, value) {
 }
 
 function normalizeScore(row, weights) {
+  if (state.view === 'rising') {
+    return row.risingScore;
+  }
   const breakdown = row.breakdown;
   const score =
     breakdown.volumeScore * weights.volumeScore +
@@ -78,6 +82,10 @@ function normalizeScore(row, weights) {
     breakdown.noisePenalty * weights.noisePenalty;
 
   return Math.max(0, Math.min(1, score));
+}
+
+function activeBreakdown(row) {
+  return state.view === 'rising' ? row.risingBreakdown : row.breakdown;
 }
 
 function rankedRows() {
@@ -110,6 +118,24 @@ function renderSegments() {
       state.segment = segment.id;
       state.selectedCoin = null;
       renderSegments();
+      renderLeaderboard();
+    });
+    root.appendChild(button);
+  });
+}
+
+function renderViews() {
+  const root = document.getElementById('viewTabs');
+  root.innerHTML = '';
+  (state.dataset.strategy.views || []).forEach((view) => {
+    const button = document.createElement('button');
+    button.className = `segment-tab ${state.view === view.id ? 'active' : ''}`;
+    button.textContent = view.label;
+    button.title = view.description;
+    button.addEventListener('click', () => {
+      state.view = view.id;
+      state.selectedCoin = null;
+      renderViews();
       renderLeaderboard();
     });
     root.appendChild(button);
@@ -192,7 +218,9 @@ function renderLeaderboard() {
       `OI ${fmtUsd(row.openInterestUsd)}`,
       `Turnover ${row.turnover24h.toFixed(2)}x`,
       `Trades ${fmtCompact(row.tradeCount24h)}`,
+      state.view === 'rising' ? `1h Burst ${row.burstVolume1h.toFixed(2)}x` : null,
     ]
+      .filter(Boolean)
       .map((text) => `<span class="badge">${text}</span>`)
       .join('');
 
@@ -205,6 +233,11 @@ function renderLeaderboard() {
           <span>Price ${fmtPct(row.priceChangePct)}</span>
           <span>Spread ${row.spreadBps.toFixed(1)} bps</span>
           <span>4h accel ${row.volumeAcceleration.toFixed(2)}x</span>
+          ${
+            state.view === 'rising'
+              ? `<span>1h burst ${row.burstVolume1h.toFixed(2)}x</span>`
+              : ''
+          }
         </div>
       </div>
       <div class="leader-score">
@@ -231,11 +264,14 @@ function renderDetail(coin) {
 
   const metrics = [
     ['热度分', (row.adjustedScore * 100).toFixed(1)],
+    ['当前视角', state.view === 'rising' ? 'Rising' : 'Hot'],
     ['市场分组', row.marketGroup === 'hip3' ? `HIP-3 / ${row.dex.toUpperCase()}` : 'Main Perp'],
     ['24h 成交额', fmtUsd(row.volume24hUsd)],
     ['持仓规模', fmtUsd(row.openInterestUsd)],
     ['交易笔数', fmtCompact(row.tradeCount24h)],
     ['换手效率', `${row.turnover24h.toFixed(2)}x`],
+    ['1h 成交爆发', `${row.burstVolume1h.toFixed(2)}x`],
+    ['1h 交易爆发', `${row.burstTrades1h.toFixed(2)}x`],
     ['可信度折扣', `${(row.confidenceFactor * 100).toFixed(0)}%`],
     ['价格变化', fmtPct(row.priceChangePct)],
     ['盘口价差', `${row.spreadBps.toFixed(2)} bps`],
@@ -244,23 +280,39 @@ function renderDetail(coin) {
     ['波动噪音', `${row.realizedVolatilityPct.toFixed(2)}%`],
   ];
 
-  const breakdownEntries = [
-    ['24h 成交额', row.breakdown.volumeScore],
-    ['持仓规模', row.breakdown.oiScore],
-    ['交易笔数', row.breakdown.tradeScore],
-    ['换手效率', row.breakdown.turnoverScore],
-    ['近 4h 加速度', row.breakdown.accelerationScore],
-    ['价格动量', row.breakdown.momentumScore],
-    ['盘口质量', row.breakdown.liquidityScore],
-    ['拥挤惩罚', row.breakdown.crowdingPenalty],
-    ['噪音惩罚', row.breakdown.noisePenalty],
-  ];
+  const breakdownEntries =
+    state.view === 'rising'
+      ? [
+          ['4h 成交增长', row.risingBreakdown.volumeGrowthScore],
+          ['4h 交易增长', row.risingBreakdown.tradeGrowthScore],
+          ['换手抬升', row.risingBreakdown.turnoverGrowthScore],
+          ['1h 爆发', row.risingBreakdown.burstScore],
+          ['价格动量', row.risingBreakdown.momentumScore],
+          ['盘口质量', row.risingBreakdown.liquidityScore],
+          ['拥挤惩罚', row.risingBreakdown.crowdingPenalty],
+          ['噪音惩罚', row.risingBreakdown.noisePenalty],
+        ]
+      : [
+          ['24h 成交额', row.breakdown.volumeScore],
+          ['持仓规模', row.breakdown.oiScore],
+          ['交易笔数', row.breakdown.tradeScore],
+          ['换手效率', row.breakdown.turnoverScore],
+          ['近 4h 加速度', row.breakdown.accelerationScore],
+          ['价格动量', row.breakdown.momentumScore],
+          ['盘口质量', row.breakdown.liquidityScore],
+          ['拥挤惩罚', row.breakdown.crowdingPenalty],
+          ['噪音惩罚', row.breakdown.noisePenalty],
+        ];
 
   const detail = document.getElementById('detailContent');
   detail.className = 'detail-content';
   detail.innerHTML = `
     <p class="detail-copy">
-      热门更像是“资金、交易、注意力”同时堆上来。这个合约当前的原始指标和分项得分如下。
+      ${
+        state.view === 'rising'
+          ? 'Rising 更像是“最近突然升温”。这里重点看近4小时增长、1小时爆发和换手抬升。'
+          : '热门更像是“资金、交易、注意力”同时堆上来。这个合约当前的原始指标和分项得分如下。'
+      }
     </p>
     <div class="reasons">
       ${row.reasons.map((reason) => `<span class="reason-pill">${reason}</span>`).join('')}
@@ -318,6 +370,7 @@ async function loadData(refresh = false) {
     updateHeader();
     renderFormula();
     renderFilters();
+    renderViews();
     renderSliders();
     renderSegments();
     renderLeaderboard();
