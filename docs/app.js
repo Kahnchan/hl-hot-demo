@@ -1,23 +1,23 @@
 const defaultWeights = {
-  volumeScore: 0.22,
-  oiScore: 0.08,
-  tradeScore: 0.18,
-  turnoverScore: 0.18,
-  accelerationScore: 0.18,
+  volumeScore: 0.35,
+  oiScore: 0.25,
+  tradeScore: 0.15,
+  turnoverScore: 0.15,
+  accelerationScore: 0.1,
   momentumScore: 0.1,
-  liquidityScore: 0.1,
+  liquidityScore: 0.15,
   crowdingPenalty: -0.03,
-  noisePenalty: -0.03,
+  noisePenalty: -0.02,
 };
 
 const weightLabels = {
-  volumeScore: '24h 成交额',
-  oiScore: '持仓规模',
-  tradeScore: '交易笔数',
-  turnoverScore: '换手效率',
-  accelerationScore: '近 4h 加速度',
+  volumeScore: '24h 成交变化',
+  oiScore: '24h 交易变化',
+  tradeScore: '换手变化',
+  turnoverScore: '4h 窗口变化',
+  accelerationScore: '短窗加速',
   momentumScore: '价格动量',
-  liquidityScore: '盘口质量',
+  liquidityScore: '基础活跃度',
   crowdingPenalty: '拥挤惩罚',
   noisePenalty: '噪音惩罚',
 };
@@ -212,13 +212,15 @@ function renderLeaderboard() {
       renderDetail(row.coin);
     });
 
-    const badges = [
+  const badges = [
       row.marketGroup === 'hip3' ? `HIP-3 ${row.dex.toUpperCase()}` : 'Main Perp',
       `24h Vol ${fmtUsd(row.volume24hUsd)}`,
       `OI ${fmtUsd(row.openInterestUsd)}`,
       `Turnover ${row.turnover24h.toFixed(2)}x`,
       `Trades ${fmtCompact(row.tradeCount24h)}`,
-      state.view === 'rising' ? `1h Burst ${row.burstVolume1h.toFixed(2)}x` : null,
+      state.view === 'rising'
+        ? `1h Burst ${row.burstVolume1h.toFixed(2)}x`
+        : `24h Delta ${fmtPct(row.volume24hChange * 100)}`,
     ]
       .filter(Boolean)
       .map((text) => `<span class="badge">${text}</span>`)
@@ -232,11 +234,11 @@ function renderLeaderboard() {
         <div class="subline">
           <span>Price ${fmtPct(row.priceChangePct)}</span>
           <span>Spread ${row.spreadBps.toFixed(1)} bps</span>
-          <span>4h accel ${row.volumeAcceleration.toFixed(2)}x</span>
+          <span>4h delta ${fmtPct(row.volume4hChange * 100)}</span>
           ${
             state.view === 'rising'
               ? `<span>1h burst ${row.burstVolume1h.toFixed(2)}x</span>`
-              : ''
+              : `<span>trades delta ${fmtPct(row.trade24hChange * 100)}</span>`
           }
         </div>
       </div>
@@ -267,9 +269,16 @@ function renderDetail(coin) {
     ['当前视角', state.view === 'rising' ? 'Rising' : 'Hot'],
     ['市场分组', row.marketGroup === 'hip3' ? `HIP-3 / ${row.dex.toUpperCase()}` : 'Main Perp'],
     ['24h 成交额', fmtUsd(row.volume24hUsd)],
+    ['上一24h成交额', fmtUsd(row.previousVolume24hUsd)],
     ['持仓规模', fmtUsd(row.openInterestUsd)],
     ['交易笔数', fmtCompact(row.tradeCount24h)],
+    ['上一24h交易笔数', fmtCompact(row.previousTradeCount24h)],
     ['换手效率', `${row.turnover24h.toFixed(2)}x`],
+    ['换手变化', fmtPct(row.turnover24hChange * 100)],
+    ['24h 成交变化', fmtPct(row.volume24hChange * 100)],
+    ['24h 交易变化', fmtPct(row.trade24hChange * 100)],
+    ['4h 成交变化', fmtPct(row.volume4hChange * 100)],
+    ['4h 交易变化', fmtPct(row.trade4hChange * 100)],
     ['1h 成交爆发', `${row.burstVolume1h.toFixed(2)}x`],
     ['1h 交易爆发', `${row.burstTrades1h.toFixed(2)}x`],
     ['可信度折扣', `${(row.confidenceFactor * 100).toFixed(0)}%`],
@@ -293,13 +302,13 @@ function renderDetail(coin) {
           ['噪音惩罚', row.risingBreakdown.noisePenalty],
         ]
       : [
-          ['24h 成交额', row.breakdown.volumeScore],
-          ['持仓规模', row.breakdown.oiScore],
-          ['交易笔数', row.breakdown.tradeScore],
-          ['换手效率', row.breakdown.turnoverScore],
-          ['近 4h 加速度', row.breakdown.accelerationScore],
+          ['24h 成交变化', row.breakdown.volumeScore],
+          ['24h 交易变化', row.breakdown.oiScore],
+          ['换手变化', row.breakdown.tradeScore],
+          ['4h 窗口变化', row.breakdown.turnoverScore],
+          ['短窗加速', row.breakdown.accelerationScore],
           ['价格动量', row.breakdown.momentumScore],
-          ['盘口质量', row.breakdown.liquidityScore],
+          ['基础活跃度', row.breakdown.liquidityScore],
           ['拥挤惩罚', row.breakdown.crowdingPenalty],
           ['噪音惩罚', row.breakdown.noisePenalty],
         ];
@@ -311,7 +320,7 @@ function renderDetail(coin) {
       ${
         state.view === 'rising'
           ? 'Rising 更像是“最近突然升温”。这里重点看近4小时增长、1小时爆发和换手抬升。'
-          : '热门更像是“资金、交易、注意力”同时堆上来。这个合约当前的原始指标和分项得分如下。'
+          : 'Hot 改成了“较上一时间段变得更热” 的定义。这里重点看当前24h相对上一24h的成交和交易变化。'
       }
     </p>
     <div class="reasons">

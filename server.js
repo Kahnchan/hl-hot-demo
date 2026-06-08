@@ -157,12 +157,14 @@ function standardDeviation(values) {
 
 function buildMetricRanges(rows) {
   const keys = [
-    'volume24hUsd',
-    'openInterestUsd',
-    'tradeCount24h',
-    'turnover24h',
-    'volumeAcceleration',
-    'tradeAcceleration',
+    'volume24hChange',
+    'trade24hChange',
+    'turnover24hChange',
+    'volume4hChange',
+    'trade4hChange',
+    'baseVolume24hUsd',
+    'baseTradeCount24h',
+    'baseLiquidityDepthUsd',
     'priceChangeAbsPct',
     'liquidityDepthUsd',
     'spreadBps',
@@ -181,44 +183,50 @@ function buildMetricRanges(rows) {
 }
 
 function computeBreakdown(row, ranges) {
-  const volumeScore = logNorm(
-    row.volume24hUsd,
-    ranges.volume24hUsd.min,
-    ranges.volume24hUsd.max,
+  const volumeChangeScore = linearNorm(
+    row.volume24hChange,
+    ranges.volume24hChange.min,
+    ranges.volume24hChange.max,
   );
-  const oiScore = logNorm(
-    row.openInterestUsd,
-    ranges.openInterestUsd.min,
-    ranges.openInterestUsd.max,
+  const tradeChangeScore = linearNorm(
+    row.trade24hChange,
+    ranges.trade24hChange.min,
+    ranges.trade24hChange.max,
   );
-  const tradeScore = logNorm(
-    row.tradeCount24h,
-    ranges.tradeCount24h.min,
-    ranges.tradeCount24h.max,
+  const turnoverChangeScore = linearNorm(
+    row.turnover24hChange,
+    ranges.turnover24hChange.min,
+    ranges.turnover24hChange.max,
   );
-  const turnoverScore = linearNorm(
-    row.turnover24h,
-    ranges.turnover24h.min,
-    ranges.turnover24h.max,
-  );
-  const accelerationScore =
-    linearNorm(
-      row.volumeAcceleration,
-      ranges.volumeAcceleration.min,
-      ranges.volumeAcceleration.max,
-    ) *
-      0.6 +
-    linearNorm(
-      row.tradeAcceleration,
-      ranges.tradeAcceleration.min,
-      ranges.tradeAcceleration.max,
-    ) *
-      0.4;
+  const shortWindowScore =
+    linearNorm(row.volume4hChange, ranges.volume4hChange.min, ranges.volume4hChange.max) *
+      0.55 +
+    linearNorm(row.trade4hChange, ranges.trade4hChange.min, ranges.trade4hChange.max) *
+      0.45;
   const momentumScore = linearNorm(
     row.priceChangeAbsPct,
     ranges.priceChangeAbsPct.min,
     ranges.priceChangeAbsPct.max,
   );
+  const baseActivityScore =
+    logNorm(
+      row.baseVolume24hUsd,
+      ranges.baseVolume24hUsd.min,
+      ranges.baseVolume24hUsd.max,
+    ) *
+      0.5 +
+    logNorm(
+      row.baseTradeCount24h,
+      ranges.baseTradeCount24h.min,
+      ranges.baseTradeCount24h.max,
+    ) *
+      0.3 +
+    linearNorm(
+      row.baseLiquidityDepthUsd,
+      ranges.baseLiquidityDepthUsd.min,
+      ranges.baseLiquidityDepthUsd.max,
+    ) *
+      0.2;
   const liquidityScore =
     linearNorm(
       row.liquidityDepthUsd,
@@ -240,12 +248,12 @@ function computeBreakdown(row, ranges) {
   );
 
   return {
-    volumeScore,
-    oiScore,
-    tradeScore,
-    turnoverScore,
-    accelerationScore,
+    volumeChangeScore,
+    tradeChangeScore,
+    turnoverChangeScore,
+    shortWindowScore,
     momentumScore,
+    baseActivityScore,
     liquidityScore,
     crowdingPenalty,
     noisePenalty,
@@ -254,16 +262,18 @@ function computeBreakdown(row, ranges) {
 
 function scoreRow(row, ranges) {
   const breakdown = computeBreakdown(row, ranges);
+  const changeScore =
+    breakdown.volumeChangeScore * 0.35 +
+    breakdown.tradeChangeScore * 0.25 +
+    breakdown.turnoverChangeScore * 0.15 +
+    breakdown.shortWindowScore * 0.15 +
+    breakdown.momentumScore * 0.1;
   const score =
-    breakdown.volumeScore * 0.22 +
-    breakdown.oiScore * 0.08 +
-    breakdown.tradeScore * 0.18 +
-    breakdown.turnoverScore * 0.18 +
-    breakdown.accelerationScore * 0.18 +
-    breakdown.momentumScore * 0.1 +
+    changeScore * 0.75 +
+    breakdown.baseActivityScore * 0.15 +
     breakdown.liquidityScore * 0.1 -
     breakdown.crowdingPenalty * 0.03 -
-    breakdown.noisePenalty * 0.03;
+    breakdown.noisePenalty * 0.02;
 
   return {
     score: clamp(score, 0, 1),
@@ -301,7 +311,7 @@ async function fetchUniverse() {
 
 async function fetchCandles(coin) {
   const now = Date.now();
-  const startTime = now - 24 * 60 * 60 * 1000;
+  const startTime = now - 48 * 60 * 60 * 1000;
   const candles = await postToHyperliquid({
     type: 'candleSnapshot',
     req: {
@@ -361,8 +371,14 @@ function computeFromCandles(candles) {
     }
   }
 
+  const currentTrades24h = sum(tradeCounts.slice(-24));
+  const previousTrades24h = sum(tradeCounts.slice(-48, -24));
+  const currentVolume24h = sum(volumes.slice(-24));
+  const previousVolume24h = sum(volumes.slice(-48, -24));
   const last4Trades = sum(tradeCounts.slice(-4));
+  const previous4Trades = sum(tradeCounts.slice(-8, -4));
   const last4Volume = sum(volumes.slice(-4));
+  const previous4Volume = sum(volumes.slice(-8, -4));
   const last1Trade = tradeCounts.at(-1) || 0;
   const last1Volume = volumes.at(-1) || 0;
   const baseline4Trades = average(
@@ -379,11 +395,14 @@ function computeFromCandles(candles) {
   const baseline1Volume = average(volumes.slice(0, -1));
 
   return {
-    tradeCount24h: sum(tradeCounts),
+    tradeCount24h: currentTrades24h,
+    previousTradeCount24h: previousTrades24h,
+    volume24hFromCandles: currentVolume24h,
+    previousVolume24hFromCandles: previousVolume24h,
     volumeAcceleration:
-      baseline4Volume > 0 ? clamp(last4Volume / baseline4Volume, 0, 4) : 0,
+      previous4Volume > 0 ? clamp(last4Volume / previous4Volume, 0, 4) : 0,
     tradeAcceleration:
-      baseline4Trades > 0 ? clamp(last4Trades / baseline4Trades, 0, 4) : 0,
+      previous4Trades > 0 ? clamp(last4Trades / previous4Trades, 0, 4) : 0,
     burstVolume1h:
       baseline1Volume > 0 ? clamp(last1Volume / baseline1Volume, 0, 6) : 0,
     burstTrades1h:
@@ -395,12 +414,11 @@ function computeFromCandles(candles) {
 function buildReason(row) {
   const reasons = [];
   if (row.marketGroup === 'hip3') reasons.push(`${row.dex.toUpperCase()} HIP-3资产`);
-  if (row.volume24hUsd > 50_000_000) reasons.push('24h成交额很强');
-  if (row.tradeCount24h > 20_000) reasons.push('成交笔数活跃');
-  if (row.turnover24h > 2.2) reasons.push('换手效率很高');
-  if (row.openInterestUsd > 100_000_000) reasons.push('持仓规模扎实');
-  if (row.volumeAcceleration > 1.3) reasons.push('近4小时放量');
-  if (row.tradeAcceleration > 1.25) reasons.push('近4小时交易加速');
+  if (row.volume24hChange > 0.8) reasons.push('24h成交额明显抬升');
+  if (row.trade24hChange > 0.6) reasons.push('24h交易笔数增长明显');
+  if (row.turnover24hChange > 0.35) reasons.push('换手强于上一周期');
+  if (row.volume4hChange > 0.5) reasons.push('近4小时继续放量');
+  if (row.baseVolume24hUsd > 50_000_000) reasons.push('且绝对成交额不低');
   if (row.spreadBps < 8) reasons.push('盘口价差健康');
   if (row.marketGroup === 'hip3' && row.confidenceFactor < 0.9) {
     reasons.push('但HIP-3可信度有折扣');
@@ -439,6 +457,11 @@ function computeConfidenceFactor(row) {
     0.45,
     1,
   );
+}
+
+function safeRelativeChange(currentValue, previousValue, floorValue) {
+  const base = Math.max(previousValue, floorValue);
+  return clamp((currentValue - previousValue) / base, -0.5, 3);
 }
 
 function computeRisingScore(row) {
@@ -545,7 +568,44 @@ async function buildDataset() {
     };
   });
 
-  const filtered = rows
+  const enrichedRows = rows.map((row) => {
+    const previousVolume24hUsd =
+      row.previousVolume24hFromCandles > 0 && row.volume24hFromCandles > 0
+        ? (row.volume24hUsd * row.previousVolume24hFromCandles) /
+          row.volume24hFromCandles
+        : row.volume24hUsd;
+    const currentTurnover24h = row.turnover24h;
+    const previousTurnover24h =
+      row.openInterestUsd > 0 ? previousVolume24hUsd / row.openInterestUsd : 0;
+    return {
+      ...row,
+      previousVolume24hUsd,
+      currentTurnover24h,
+      previousTurnover24h,
+      volume24hChange: safeRelativeChange(
+        row.volume24hUsd,
+        previousVolume24hUsd,
+        1_000_000,
+      ),
+      trade24hChange: safeRelativeChange(
+        row.tradeCount24h,
+        row.previousTradeCount24h,
+        500,
+      ),
+      turnover24hChange: safeRelativeChange(
+        currentTurnover24h,
+        previousTurnover24h,
+        0.25,
+      ),
+      volume4hChange: safeRelativeChange(row.volumeAcceleration, 1, 0.3),
+      trade4hChange: safeRelativeChange(row.tradeAcceleration, 1, 0.3),
+      baseVolume24hUsd: row.volume24hUsd,
+      baseTradeCount24h: row.tradeCount24h,
+      baseLiquidityDepthUsd: row.liquidityDepthUsd,
+    };
+  });
+
+  const filtered = enrichedRows
     .filter((row) => row.tradeCount24h > 0)
     .filter((row) =>
       row.marketGroup === 'hip3'
@@ -592,17 +652,17 @@ async function buildDataset() {
     generatedAt: new Date().toISOString(),
     strategy: {
       summary:
-        'HL 热度分同时看成交额、交易笔数、换手效率、近4小时加速度、价格动量和盘口质量；现在额外补进了 HIP-3 xyz 资产，但会对低深度、低持仓的 HIP-3 合约施加可信度折扣。',
+        '热门改成了变化定义：优先比较当前24小时相对上一24小时的成交额、交易笔数和换手率变化，再辅以近4小时增速。绝对体量只作为轻量兜底，避免榜单永远被BTC和ETH垄断。',
       weights: {
-        volumeScore: 0.22,
-        oiScore: 0.08,
-        tradeScore: 0.18,
-        turnoverScore: 0.18,
-        accelerationScore: 0.18,
+        volumeScore: 0.35,
+        oiScore: 0.25,
+        tradeScore: 0.15,
+        turnoverScore: 0.15,
+        accelerationScore: 0.1,
         momentumScore: 0.1,
-        liquidityScore: 0.1,
+        liquidityScore: 0.15,
         crowdingPenalty: -0.03,
-        noisePenalty: -0.03,
+        noisePenalty: -0.02,
       },
       candidateCount: CANDIDATE_COUNT,
       resultLimit: RESULT_LIMIT,
@@ -635,7 +695,7 @@ async function buildDataset() {
         {
           id: 'hot',
           label: 'Hot',
-          description: '偏综合热度，成交、持仓、换手、盘口一起看。',
+          description: '偏变化驱动，当前24h相对上一24h谁变得更热。',
         },
         {
           id: 'rising',
