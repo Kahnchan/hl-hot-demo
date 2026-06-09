@@ -409,6 +409,11 @@ button.ghost {
   gap: 20px;
 }
 
+.calc-intro {
+  color: var(--ink-soft);
+  line-height: 1.75;
+}
+
 .calc-formula {
   padding: 16px 18px;
   border-radius: 22px;
@@ -427,6 +432,60 @@ button.ghost {
 .calc-steps {
   display: grid;
   gap: 14px;
+}
+
+.calc-section {
+  padding: 18px 20px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+}
+
+.calc-section-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.calc-section-index {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  display: grid;
+  place-items: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.calc-section h3 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.calc-section p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.75;
+}
+
+.calc-section pre {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(243, 239, 231, 0.85);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.calc-section code {
+  font-size: 0.94rem;
+  line-height: 1.7;
+  color: var(--ink);
+  white-space: pre-wrap;
 }
 
 .calc-fields {

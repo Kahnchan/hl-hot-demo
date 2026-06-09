@@ -34,7 +34,7 @@ const calcDocs = {
   rising: {
     title: 'Rising 计算规则',
     intro:
-      '这部分按开发实现文档来写：先定义输入字段，再定义中间变量、归一化规则、最终公式、过滤条件和排序方式。',
+      '这部分按开发实现文档来写，目标是让开发直接照着实现。结构固定为：输入字段 -> 中间变量 -> 归一化 -> 最终公式 -> 过滤条件 -> 排序规则 -> 伪代码。',
     formula: `rising_score =
 0.28 * volume_growth_score
 + 0.22 * trade_growth_score
@@ -47,53 +47,148 @@ const calcDocs = {
     sections: [
       {
         title: '1. 输入字段',
-        body:
-          '`metaAndAssetCtxs`: dayNtlVlm, openInterest, markPx, prevDayPx, funding。`candleSnapshot(1h,last48h)`: v, n, c。`l2Book`: levels。',
+        content: `metaAndAssetCtxs:
+- dayNtlVlm
+- openInterest
+- markPx
+- prevDayPx
+- funding
+
+candleSnapshot(1h, last48h):
+- v
+- n
+- c
+
+l2Book:
+- levels`,
       },
       {
         title: '2. 基础变量',
-        body:
-          '`volume24hUsd = dayNtlVlm`。`openInterestUsd = openInterest * markPx`。`turnover24h = volume24hUsd / openInterestUsd`。`priceChangePct = (markPx - prevDayPx) / prevDayPx * 100`。`fundingAbsBps = abs(funding) * 10000`。',
+        content: `volume24hUsd = dayNtlVlm
+openInterestUsd = openInterest * markPx
+turnover24h = volume24hUsd / openInterestUsd
+priceChangePct = ((markPx - prevDayPx) / prevDayPx) * 100
+priceChangeAbsPct = abs(priceChangePct)
+fundingAbsBps = abs(funding) * 10000`,
       },
       {
         title: '3. 4h / 1h 时间窗口变量',
-        body:
-          '`last4Volume = sum(v[-4:])`，`previous4Volume = sum(v[-8:-4])`，`volumeAcceleration = clamp(last4Volume / previous4Volume, 0, 4)`。`last4Trades = sum(n[-4:])`，`previous4Trades = sum(n[-8:-4])`，`tradeAcceleration = clamp(last4Trades / previous4Trades, 0, 4)`。`burstVolume1h = clamp(v[-1] / average(v[0:-1]), 0, 6)`。`burstTrades1h = clamp(n[-1] / average(n[0:-1]), 0, 6)`。',
+        content: `last4Volume = sum(v[-4:])
+previous4Volume = sum(v[-8:-4])
+volumeAcceleration = clamp(last4Volume / previous4Volume, 0, 4)
+
+last4Trades = sum(n[-4:])
+previous4Trades = sum(n[-8:-4])
+tradeAcceleration = clamp(last4Trades / previous4Trades, 0, 4)
+
+burstVolume1h = clamp(v[-1] / average(v[0:-1]), 0, 6)
+burstTrades1h = clamp(n[-1] / average(n[0:-1]), 0, 6)`,
       },
       {
         title: '4. 盘口和波动变量',
-        body:
-          '`spreadBps = ((bestAsk - bestBid) / mid) * 10000`。`liquidityDepthUsd = top8BidsUsd + top8AsksUsd`。`realizedVolatilityPct = stddev(hourlyReturns) * 100`。',
+        content: `spreadBps = ((bestAsk - bestBid) / mid) * 10000
+liquidityDepthUsd = top8BidsUsd + top8AsksUsd
+realizedVolatilityPct = stddev(hourlyReturns) * 100`,
       },
       {
         title: '5. 归一化分数',
-        body:
-          '`volumeGrowthScore = clamp((volumeAcceleration - 1) / 2.2, 0, 1)`。`tradeGrowthScore = clamp((tradeAcceleration - 1) / 2.2, 0, 1)`。`turnoverGrowthScore = clamp((turnover24h - 0.8) / 2.2, 0, 1)`。`burstScore = 0.55 * clamp((burstVolume1h - 1) / 3, 0, 1) + 0.45 * clamp((burstTrades1h - 1) / 3, 0, 1)`。`momentumScore = clamp(abs(priceChangePct) / 12, 0, 1)`。`liquidityScore = 0.55 * clamp(liquidityDepthUsd / 250000, 0, 1) + 0.45 * clamp(1 - spreadBps / 12, 0, 1)`。`crowdingPenalty = clamp(fundingAbsBps / 8, 0, 1)`。`noisePenalty = clamp(realizedVolatilityPct / 4, 0, 1)`。',
+        content: `volumeGrowthScore = clamp((volumeAcceleration - 1) / 2.2, 0, 1)
+tradeGrowthScore = clamp((tradeAcceleration - 1) / 2.2, 0, 1)
+turnoverGrowthScore = clamp((turnover24h - 0.8) / 2.2, 0, 1)
+burstScore = 0.55 * clamp((burstVolume1h - 1) / 3, 0, 1)
+           + 0.45 * clamp((burstTrades1h - 1) / 3, 0, 1)
+momentumScore = clamp(abs(priceChangePct) / 12, 0, 1)
+liquidityScore = 0.55 * clamp(liquidityDepthUsd / 250000, 0, 1)
+               + 0.45 * clamp(1 - spreadBps / 12, 0, 1)
+crowdingPenalty = clamp(fundingAbsBps / 8, 0, 1)
+noisePenalty = clamp(realizedVolatilityPct / 4, 0, 1)`,
       },
       {
         title: '6. 最终分数',
-        body:
-          '`risingScoreRaw = 0.28*volumeGrowthScore + 0.22*tradeGrowthScore + 0.18*turnoverGrowthScore + 0.14*burstScore + 0.10*momentumScore + 0.12*liquidityScore - 0.04*crowdingPenalty - 0.04*noisePenalty`。最后 `clamp(risingScoreRaw, 0, 1)`。',
+        content: `risingScoreRaw =
+  0.28 * volumeGrowthScore +
+  0.22 * tradeGrowthScore +
+  0.18 * turnoverGrowthScore +
+  0.14 * burstScore +
+  0.10 * momentumScore +
+  0.12 * liquidityScore -
+  0.04 * crowdingPenalty -
+  0.04 * noisePenalty
+
+risingScoreRaw = clamp(risingScoreRaw, 0, 1)`,
       },
       {
         title: '7. HIP-3 折扣',
-        body:
-          '如果是 HIP-3，额外乘 `confidenceFactor`。`oiConfidence = clamp(openInterestUsd / 8000000, 0.55, 1)`，`depthConfidence = clamp(liquidityDepthUsd / 90000, 0.5, 1)`，`spreadConfidence = 1 - linearNorm(spreadBps, 3, 20) * 0.35`。`confidenceFactor = clamp(0.35*oiConfidence + 0.40*depthConfidence + 0.25*spreadConfidence, 0.45, 1)`。最终 `finalRisingScore = risingScoreRaw * confidenceFactor`。',
+        content: `if marketGroup === 'hip3':
+  oiConfidence = clamp(openInterestUsd / 8000000, 0.55, 1)
+  depthConfidence = clamp(liquidityDepthUsd / 90000, 0.5, 1)
+  spreadConfidence = 1 - linearNorm(spreadBps, 3, 20) * 0.35
+
+  confidenceFactor = clamp(
+    0.35 * oiConfidence +
+    0.40 * depthConfidence +
+    0.25 * spreadConfidence,
+    0.45,
+    1
+  )
+
+  finalRisingScore = risingScoreRaw * confidenceFactor
+else:
+  finalRisingScore = risingScoreRaw`,
       },
       {
         title: '8. 过滤条件',
-        body:
-          '主市场：`volume24hUsd > 100000`、`openInterestUsd > 250000`、`liquidityDepthUsd > 10000`、`tradeCount24h > 0`。HIP-3：`volume24hUsd > 100000`、`openInterestUsd > 1000000`、`liquidityDepthUsd > 20000`、`tradeCount24h > 0`。',
+        content: `main:
+- volume24hUsd > 100000
+- openInterestUsd > 250000
+- liquidityDepthUsd > 10000
+- tradeCount24h > 0
+
+hip3:
+- volume24hUsd > 100000
+- openInterestUsd > 1000000
+- liquidityDepthUsd > 20000
+- tradeCount24h > 0`,
       },
       {
         title: '9. 排序规则',
-        body:
-          '对所有通过过滤的资产计算 `finalRisingScore`，按 `finalRisingScore` 倒序排序，分数高的排前面。',
+        content: `对所有通过过滤的资产：
+1. 计算 finalRisingScore
+2. 按 finalRisingScore 倒序排列
+3. score 高的排前面`,
       },
       {
         title: '10. 伪代码',
-        body:
-          'for asset in assets: read metaAndAssetCtxs, candleSnapshot(48h,1h), l2Book -> compute volume24hUsd/openInterestUsd/turnover24h/priceChangePct/fundingAbsBps -> compute volumeAcceleration/tradeAcceleration/burstVolume1h/burstTrades1h/realizedVolatilityPct -> compute spreadBps/liquidityDepthUsd -> compute all normalized scores -> compute risingScoreRaw -> if hip3 then finalRisingScore = risingScoreRaw * confidenceFactor else finalRisingScore = risingScoreRaw -> filter -> sort desc by finalRisingScore。',
+        content: `for asset in assets:
+  read metaAndAssetCtxs
+  read candleSnapshot(48h, 1h)
+  read l2Book
+
+  compute volume24hUsd
+  compute openInterestUsd
+  compute turnover24h
+  compute priceChangePct
+  compute fundingAbsBps
+
+  compute volumeAcceleration
+  compute tradeAcceleration
+  compute burstVolume1h
+  compute burstTrades1h
+  compute realizedVolatilityPct
+
+  compute spreadBps
+  compute liquidityDepthUsd
+
+  compute all normalized scores
+  compute risingScoreRaw
+
+  if hip3:
+    finalRisingScore = risingScoreRaw * confidenceFactor
+  else:
+    finalRisingScore = risingScoreRaw
+
+filter by thresholds
+sort by finalRisingScore desc`,
       },
     ],
     hlFields: [
@@ -253,8 +348,14 @@ function renderCalcRules() {
   title.textContent = calc.title;
   root.className = 'calc-content';
   root.innerHTML = `
-    <p class="detail-copy">${calc.intro}</p>
-    <div class="calc-formula"><code>${calc.formula}</code></div>
+    <p class="calc-intro">${calc.intro}</p>
+    <div class="calc-section">
+      <div class="calc-section-head">
+        <span class="calc-section-index">F</span>
+        <h3>最终公式</h3>
+      </div>
+      <pre><code>${calc.formula}</code></pre>
+    </div>
     <div class="calc-fields">
       ${calc.hlFields
         .map(
@@ -272,9 +373,12 @@ function renderCalcRules() {
       ${calc.sections
         .map(
           (section) => `
-            <article class="calc-step">
-              <h3>${section.title}</h3>
-              <p>${section.body}</p>
+            <article class="calc-section">
+              <div class="calc-section-head">
+                <span class="calc-section-index">${section.title.split('.')[0]}</span>
+                <h3>${section.title.replace(/^\d+\.\s*/, '')}</h3>
+              </div>
+              <pre><code>${section.content}</code></pre>
             </article>`,
         )
         .join('')}
