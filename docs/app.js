@@ -34,7 +34,7 @@ const calcDocs = {
   rising: {
     title: 'Rising 计算规则',
     intro:
-      'Rising 是短线异动榜，偏向抓最近几小时里突然活跃起来的资产。它回答的是：谁在最近4小时和1小时窗口里，突然冲起来了。',
+      '这部分按开发实现文档来写：先定义输入字段，再定义中间变量、归一化规则、最终公式、过滤条件和排序方式。',
     formula: `rising_score =
 0.28 * volume_growth_score
 + 0.22 * trade_growth_score
@@ -44,31 +44,56 @@ const calcDocs = {
 + 0.12 * liquidity_score
 - 0.04 * crowding_penalty
 - 0.04 * noise_penalty`,
-    steps: [
+    sections: [
       {
-        title: 'Step 1: 看最近4小时有没有放量',
+        title: '1. 输入字段',
         body:
-          '先算 `volumeAcceleration = 最近4h成交量 / 前4h成交量`，再归一化成 `volumeGrowthScore`。数值越大，代表最近4小时更明显放量。',
+          '`metaAndAssetCtxs`: dayNtlVlm, openInterest, markPx, prevDayPx, funding。`candleSnapshot(1h,last48h)`: v, n, c。`l2Book`: levels。',
       },
       {
-        title: 'Step 2: 看最近4小时交易有没有变多',
+        title: '2. 基础变量',
         body:
-          '同样计算 `tradeAcceleration = 最近4h交易笔数 / 前4h交易笔数`，再得到 `tradeGrowthScore`。这样能抓到交易活跃度突然提升的币。',
+          '`volume24hUsd = dayNtlVlm`。`openInterestUsd = openInterest * markPx`。`turnover24h = volume24hUsd / openInterestUsd`。`priceChangePct = (markPx - prevDayPx) / prevDayPx * 100`。`fundingAbsBps = abs(funding) * 10000`。',
       },
       {
-        title: 'Step 3: 看当前换手和 1h 爆发',
+        title: '3. 4h / 1h 时间窗口变量',
         body:
-          '当前实现里的 `turnoverGrowthScore` 实际更像当前换手水平，而不是和上个周期比。再补一个 `burstScore`，用最近1小时和历史平均1小时做对比，抓短时爆发。',
+          '`last4Volume = sum(v[-4:])`，`previous4Volume = sum(v[-8:-4])`，`volumeAcceleration = clamp(last4Volume / previous4Volume, 0, 4)`。`last4Trades = sum(n[-4:])`，`previous4Trades = sum(n[-8:-4])`，`tradeAcceleration = clamp(last4Trades / previous4Trades, 0, 4)`。`burstVolume1h = clamp(v[-1] / average(v[0:-1]), 0, 6)`。`burstTrades1h = clamp(n[-1] / average(n[0:-1]), 0, 6)`。',
       },
       {
-        title: 'Step 4: 看价格动量和盘口质量',
+        title: '4. 盘口和波动变量',
         body:
-          '价格波动幅度越大，`momentumScore` 越高；订单簿深度越厚、spread 越小，`liquidityScore` 越高。',
+          '`spreadBps = ((bestAsk - bestBid) / mid) * 10000`。`liquidityDepthUsd = top8BidsUsd + top8AsksUsd`。`realizedVolatilityPct = stddev(hourlyReturns) * 100`。',
       },
       {
-        title: 'Step 5: 扣掉拥挤和噪音',
+        title: '5. 归一化分数',
         body:
-          '资金费率极端说明市场过热，记作 `crowdingPenalty`；实现波动率过高说明走势很乱，记作 `noisePenalty`。HIP-3 资产最后还会乘一个 `confidenceFactor` 折扣。',
+          '`volumeGrowthScore = clamp((volumeAcceleration - 1) / 2.2, 0, 1)`。`tradeGrowthScore = clamp((tradeAcceleration - 1) / 2.2, 0, 1)`。`turnoverGrowthScore = clamp((turnover24h - 0.8) / 2.2, 0, 1)`。`burstScore = 0.55 * clamp((burstVolume1h - 1) / 3, 0, 1) + 0.45 * clamp((burstTrades1h - 1) / 3, 0, 1)`。`momentumScore = clamp(abs(priceChangePct) / 12, 0, 1)`。`liquidityScore = 0.55 * clamp(liquidityDepthUsd / 250000, 0, 1) + 0.45 * clamp(1 - spreadBps / 12, 0, 1)`。`crowdingPenalty = clamp(fundingAbsBps / 8, 0, 1)`。`noisePenalty = clamp(realizedVolatilityPct / 4, 0, 1)`。',
+      },
+      {
+        title: '6. 最终分数',
+        body:
+          '`risingScoreRaw = 0.28*volumeGrowthScore + 0.22*tradeGrowthScore + 0.18*turnoverGrowthScore + 0.14*burstScore + 0.10*momentumScore + 0.12*liquidityScore - 0.04*crowdingPenalty - 0.04*noisePenalty`。最后 `clamp(risingScoreRaw, 0, 1)`。',
+      },
+      {
+        title: '7. HIP-3 折扣',
+        body:
+          '如果是 HIP-3，额外乘 `confidenceFactor`。`oiConfidence = clamp(openInterestUsd / 8000000, 0.55, 1)`，`depthConfidence = clamp(liquidityDepthUsd / 90000, 0.5, 1)`，`spreadConfidence = 1 - linearNorm(spreadBps, 3, 20) * 0.35`。`confidenceFactor = clamp(0.35*oiConfidence + 0.40*depthConfidence + 0.25*spreadConfidence, 0.45, 1)`。最终 `finalRisingScore = risingScoreRaw * confidenceFactor`。',
+      },
+      {
+        title: '8. 过滤条件',
+        body:
+          '主市场：`volume24hUsd > 100000`、`openInterestUsd > 250000`、`liquidityDepthUsd > 10000`、`tradeCount24h > 0`。HIP-3：`volume24hUsd > 100000`、`openInterestUsd > 1000000`、`liquidityDepthUsd > 20000`、`tradeCount24h > 0`。',
+      },
+      {
+        title: '9. 排序规则',
+        body:
+          '对所有通过过滤的资产计算 `finalRisingScore`，按 `finalRisingScore` 倒序排序，分数高的排前面。',
+      },
+      {
+        title: '10. 伪代码',
+        body:
+          'for asset in assets: read metaAndAssetCtxs, candleSnapshot(48h,1h), l2Book -> compute volume24hUsd/openInterestUsd/turnover24h/priceChangePct/fundingAbsBps -> compute volumeAcceleration/tradeAcceleration/burstVolume1h/burstTrades1h/realizedVolatilityPct -> compute spreadBps/liquidityDepthUsd -> compute all normalized scores -> compute risingScoreRaw -> if hip3 then finalRisingScore = risingScoreRaw * confidenceFactor else finalRisingScore = risingScoreRaw -> filter -> sort desc by finalRisingScore。',
       },
     ],
     hlFields: [
@@ -244,12 +269,12 @@ function renderCalcRules() {
         .join('')}
     </div>
     <div class="calc-steps">
-      ${calc.steps
+      ${calc.sections
         .map(
-          (step) => `
+          (section) => `
             <article class="calc-step">
-              <h3>${step.title}</h3>
-              <p>${step.body}</p>
+              <h3>${section.title}</h3>
+              <p>${section.body}</p>
             </article>`,
         )
         .join('')}
