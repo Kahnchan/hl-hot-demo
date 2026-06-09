@@ -429,6 +429,11 @@ button.ghost {
   gap: 14px;
 }
 
+.calc-fields {
+  display: grid;
+  gap: 14px;
+}
+
 .calc-step {
   padding: 16px 18px;
   border-radius: 22px;
@@ -449,6 +454,10 @@ button.ghost {
 .calc-step code {
   font-size: 0.94rem;
   color: var(--accent-deep);
+}
+
+.calc-field code {
+  font-size: 0.94rem;
 }
 
 .detail-grid {

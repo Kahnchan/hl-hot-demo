@@ -75,6 +75,32 @@ change_score =
           '资金费率太极端会触发 `crowdingPenalty`，波动太乱会触发 `noisePenalty`，避免纯噪音币冲太前。',
       },
     ],
+    hlFields: [
+      {
+        source: 'metaAndAssetCtxs',
+        fields: [
+          '`dayNtlVlm` -> 当前24h名义成交额基准',
+          '`openInterest` + `markPx` -> openInterestUsd',
+          '`markPx` + `prevDayPx` -> priceChangePct / priceChangeAbsPct',
+          '`funding` -> fundingAbsBps / crowdingPenalty',
+        ],
+      },
+      {
+        source: 'candleSnapshot (1h, last 48h)',
+        fields: [
+          '`v` -> hourly volume, 用于 current24h / previous24h / last4h / previous4h',
+          '`n` -> hourly trade count, 用于 current24h / previous24h / last4h / previous4h',
+          '`c` -> hourly close, 用于 realizedVolatilityPct',
+        ],
+      },
+      {
+        source: 'l2Book',
+        fields: [
+          '`levels[0][0].px` + `levels[1][0].px` -> spreadBps',
+          '`levels` top 8 bids/asks -> liquidityDepthUsd',
+        ],
+      },
+    ],
   },
   rising: {
     title: 'Rising 计算规则',
@@ -114,6 +140,40 @@ change_score =
         title: 'Step 5: 扣掉拥挤和噪音',
         body:
           '资金费率极端说明市场过热，记作 `crowdingPenalty`；实现波动率过高说明走势很乱，记作 `noisePenalty`。HIP-3 资产最后还会乘一个 `confidenceFactor` 折扣。',
+      },
+    ],
+    hlFields: [
+      {
+        source: 'metaAndAssetCtxs',
+        fields: [
+          '`dayNtlVlm` -> volume24hUsd',
+          '`openInterest` + `markPx` -> openInterestUsd / turnover24h',
+          '`funding` -> fundingAbsBps / crowdingPenalty',
+          '`markPx` + `prevDayPx` -> priceChangePct / momentumScore',
+        ],
+      },
+      {
+        source: 'candleSnapshot (1h, last 48h)',
+        fields: [
+          '`v` -> volumeAcceleration / burstVolume1h',
+          '`n` -> tradeAcceleration / burstTrades1h',
+          '`c` -> realizedVolatilityPct',
+        ],
+      },
+      {
+        source: 'l2Book',
+        fields: [
+          '`levels` best bid/ask -> spreadBps',
+          '`levels` top 8 depth -> liquidityDepthUsd / liquidityScore',
+        ],
+      },
+      {
+        source: 'HIP-3 confidence factor',
+        fields: [
+          '`openInterestUsd` -> oiConfidence',
+          '`liquidityDepthUsd` -> depthConfidence',
+          '`spreadBps` -> spreadConfidence',
+        ],
       },
     ],
   },
@@ -277,6 +337,19 @@ function renderCalcRules() {
             <article class="calc-step">
               <h3>${step.title}</h3>
               <p>${step.body}</p>
+            </article>`,
+        )
+        .join('')}
+    </div>
+    <div class="calc-fields">
+      ${calc.hlFields
+        .map(
+          (group) => `
+            <article class="calc-step">
+              <h3>${group.source}</h3>
+              <p>
+                ${group.fields.map((field) => `<span class="calc-field">${field}</span>`).join('<br />')}
+              </p>
             </article>`,
         )
         .join('')}
