@@ -30,6 +30,95 @@ const state = {
   view: 'hot',
 };
 
+const calcDocs = {
+  hot: {
+    title: 'Hot 计算规则',
+    intro:
+      'Hot 现在是变化型榜单，优先比较当前24小时相对上一24小时的变化，再辅以近4小时变化。它回答的是：这个资产相比上一阶段，是不是变得更热门了。',
+    formula: `hot_score =
+0.75 * change_score
++ 0.15 * base_activity_score
++ 0.10 * liquidity_score
+- 0.03 * crowding_penalty
+- 0.02 * noise_penalty
+
+change_score =
+0.35 * volume_24h_change
++ 0.25 * trade_24h_change
++ 0.15 * turnover_24h_change
++ 0.15 * short_window_change
++ 0.10 * momentum_score`,
+    steps: [
+      {
+        title: 'Step 1: 取两个时间窗口',
+        body:
+          '从 HL 的 1h candles 里取最近 48 小时数据，然后拆成 当前24h / 上一24h，以及 最近4h / 前4h 两组窗口。',
+      },
+      {
+        title: 'Step 2: 算阶段变化',
+        body:
+          '计算 24h 成交额变化、24h 交易笔数变化、24h 换手变化。换手本质上是 `24h成交额 / OI`，再和上一阶段的换手做对比。',
+      },
+      {
+        title: 'Step 3: 算短窗变化',
+        body:
+          '补一个 4h 变化项，比较 最近4h 和 前4h 的成交、交易变化，防止榜单太慢。',
+      },
+      {
+        title: 'Step 4: 加基础活跃度兜底',
+        body:
+          '即使变化很大，也要看这个资产本身是不是有一定体量和交易深度，所以再轻量加入 `base_activity_score` 和 `liquidity_score`。',
+      },
+      {
+        title: 'Step 5: 扣掉过热和噪音',
+        body:
+          '资金费率太极端会触发 `crowdingPenalty`，波动太乱会触发 `noisePenalty`，避免纯噪音币冲太前。',
+      },
+    ],
+  },
+  rising: {
+    title: 'Rising 计算规则',
+    intro:
+      'Rising 是短线异动榜，偏向抓最近几小时里突然活跃起来的资产。它回答的是：谁在最近4小时和1小时窗口里，突然冲起来了。',
+    formula: `rising_score =
+0.28 * volume_growth_score
++ 0.22 * trade_growth_score
++ 0.18 * turnover_growth_score
++ 0.14 * burst_score
++ 0.10 * momentum_score
++ 0.12 * liquidity_score
+- 0.04 * crowding_penalty
+- 0.04 * noise_penalty`,
+    steps: [
+      {
+        title: 'Step 1: 看最近4小时有没有放量',
+        body:
+          '先算 `volumeAcceleration = 最近4h成交量 / 前4h成交量`，再归一化成 `volumeGrowthScore`。数值越大，代表最近4小时更明显放量。',
+      },
+      {
+        title: 'Step 2: 看最近4小时交易有没有变多',
+        body:
+          '同样计算 `tradeAcceleration = 最近4h交易笔数 / 前4h交易笔数`，再得到 `tradeGrowthScore`。这样能抓到交易活跃度突然提升的币。',
+      },
+      {
+        title: 'Step 3: 看当前换手和 1h 爆发',
+        body:
+          '当前实现里的 `turnoverGrowthScore` 实际更像当前换手水平，而不是和上个周期比。再补一个 `burstScore`，用最近1小时和历史平均1小时做对比，抓短时爆发。',
+      },
+      {
+        title: 'Step 4: 看价格动量和盘口质量',
+        body:
+          '价格波动幅度越大，`momentumScore` 越高；订单簿深度越厚、spread 越小，`liquidityScore` 越高。',
+      },
+      {
+        title: 'Step 5: 扣掉拥挤和噪音',
+        body:
+          '资金费率极端说明市场过热，记作 `crowdingPenalty`；实现波动率过高说明走势很乱，记作 `noisePenalty`。HIP-3 资产最后还会乘一个 `confidenceFactor` 折扣。',
+      },
+    ],
+  },
+};
+
 function getDataUrl(refresh = false) {
   const isLocalLive =
     window.location.hostname === 'localhost' ||
@@ -167,9 +256,32 @@ function renderViews() {
       state.selectedCoin = null;
       renderViews();
       renderLeaderboard();
+      renderCalcRules();
     });
     root.appendChild(button);
   });
+}
+
+function renderCalcRules() {
+  const calc = calcDocs[state.view] || calcDocs.hot;
+  document.getElementById('calcTitle').textContent = calc.title;
+  const root = document.getElementById('calcContent');
+  root.className = 'calc-content';
+  root.innerHTML = `
+    <p class="detail-copy">${calc.intro}</p>
+    <div class="calc-formula"><code>${calc.formula}</code></div>
+    <div class="calc-steps">
+      ${calc.steps
+        .map(
+          (step) => `
+            <article class="calc-step">
+              <h3>${step.title}</h3>
+              <p>${step.body}</p>
+            </article>`,
+        )
+        .join('')}
+    </div>
+  `;
 }
 
 function renderFormula() {
@@ -413,6 +525,7 @@ async function loadData(refresh = false) {
     renderSliders();
     renderSegments();
     renderLeaderboard();
+    renderCalcRules();
   } catch (error) {
     document.getElementById('leaderboard').innerHTML = `<div class="metric-note">加载失败：${error.message}</div>`;
   } finally {

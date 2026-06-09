@@ -390,13 +390,65 @@ button.ghost {
   margin-top: 24px;
 }
 
+.calc-panel {
+  margin-top: 24px;
+}
+
 .detail-content {
   display: grid;
   gap: 20px;
 }
 
-.detail-content.empty {
+.detail-content.empty,
+.calc-content.empty {
   color: var(--ink-soft);
+}
+
+.calc-content {
+  display: grid;
+  gap: 20px;
+}
+
+.calc-formula {
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.calc-formula code {
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--ink);
+}
+
+.calc-steps {
+  display: grid;
+  gap: 14px;
+}
+
+.calc-step {
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--line);
+}
+
+.calc-step h3 {
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+}
+
+.calc-step p {
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.calc-step code {
+  font-size: 0.94rem;
+  color: var(--accent-deep);
 }
 
 .detail-grid {
