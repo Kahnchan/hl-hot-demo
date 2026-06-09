@@ -37,23 +37,51 @@ function getDataUrl(refresh = false) {
   if (isLocalLive) {
     return `/api/hot${refresh ? '?refresh=1' : ''}`;
   }
-  return './data/latest.json';
+  const cacheKey = refresh ? Date.now() : 'static';
+  return `./data/latest.json?v=${cacheKey}`;
+}
+
+function toFiniteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function fmtCompact(value) {
+  const n = toFiniteNumber(value);
+  if (n === null) return '--';
   return new Intl.NumberFormat('en', {
     notation: 'compact',
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(n);
 }
 
 function fmtUsd(value) {
-  return `$${fmtCompact(value)}`;
+  const compact = fmtCompact(value);
+  return compact === '--' ? '--' : `$${compact}`;
 }
 
 function fmtPct(value) {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}%`;
+  const n = toFiniteNumber(value);
+  if (n === null) return '--';
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function fmtFixed(value, digits = 2, suffix = '') {
+  const n = toFiniteNumber(value);
+  if (n === null) return '--';
+  return `${n.toFixed(digits)}${suffix}`;
+}
+
+function safeScore(value) {
+  const n = toFiniteNumber(value);
+  return n === null ? 0 : Math.max(0, Math.min(1, n));
+}
+
+function getValueOr(row, key, fallback = null) {
+  if (!row || !(key in row)) return fallback;
+  const value = row[key];
+  return value === undefined || value === null ? fallback : value;
 }
 
 function sliderConfig(key, value) {
@@ -67,21 +95,23 @@ function sliderConfig(key, value) {
 
 function normalizeScore(row, weights) {
   if (state.view === 'rising') {
-    return row.risingScore;
+    return safeScore(row.risingScore);
   }
-  const breakdown = row.breakdown;
+  const breakdown = row.breakdown || {};
   const score =
-    breakdown.volumeScore * weights.volumeScore +
-    breakdown.oiScore * weights.oiScore +
-    breakdown.tradeScore * weights.tradeScore +
-    breakdown.turnoverScore * weights.turnoverScore +
-    breakdown.accelerationScore * weights.accelerationScore +
-    breakdown.momentumScore * weights.momentumScore +
-    breakdown.liquidityScore * weights.liquidityScore +
-    breakdown.crowdingPenalty * weights.crowdingPenalty +
-    breakdown.noisePenalty * weights.noisePenalty;
+    (toFiniteNumber(breakdown.volumeScore) ?? 0) * weights.volumeScore +
+    (toFiniteNumber(breakdown.oiScore) ?? 0) * weights.oiScore +
+    (toFiniteNumber(breakdown.tradeScore) ?? 0) * weights.tradeScore +
+    (toFiniteNumber(breakdown.turnoverScore) ?? 0) * weights.turnoverScore +
+    (toFiniteNumber(breakdown.accelerationScore) ?? 0) *
+      weights.accelerationScore +
+    (toFiniteNumber(breakdown.momentumScore) ?? 0) * weights.momentumScore +
+    (toFiniteNumber(breakdown.liquidityScore) ?? 0) * weights.liquidityScore +
+    (toFiniteNumber(breakdown.crowdingPenalty) ?? 0) *
+      weights.crowdingPenalty +
+    (toFiniteNumber(breakdown.noisePenalty) ?? 0) * weights.noisePenalty;
 
-  return Math.max(0, Math.min(1, score));
+  return safeScore(score);
 }
 
 function activeBreakdown(row) {
@@ -148,7 +178,7 @@ function renderFormula() {
   Object.entries(state.weights).forEach(([key, value]) => {
     const chip = document.createElement('span');
     const prefix = value >= 0 ? '+' : '';
-    chip.textContent = `${weightLabels[key]} ${prefix}${value.toFixed(2)}`;
+    chip.textContent = `${weightLabels[key]} ${prefix}${fmtFixed(value, 2)}`;
     formula.appendChild(chip);
   });
 }
@@ -173,7 +203,7 @@ function renderSliders() {
 
     const meta = document.createElement('div');
     meta.className = 'slider-meta';
-    meta.innerHTML = `<span>${weightLabels[key]}</span><strong>${value.toFixed(2)}</strong>`;
+    meta.innerHTML = `<span>${weightLabels[key]}</span><strong>${fmtFixed(value, 2)}</strong>`;
 
     const input = document.createElement('input');
     input.type = 'range';
@@ -216,11 +246,11 @@ function renderLeaderboard() {
       row.marketGroup === 'hip3' ? `HIP-3 ${row.dex.toUpperCase()}` : 'Main Perp',
       `24h Vol ${fmtUsd(row.volume24hUsd)}`,
       `OI ${fmtUsd(row.openInterestUsd)}`,
-      `Turnover ${row.turnover24h.toFixed(2)}x`,
-      `Trades ${fmtCompact(row.tradeCount24h)}`,
+      `Turnover ${fmtFixed(getValueOr(row, 'turnover24h'), 2, 'x')}`,
+      `Trades ${fmtCompact(getValueOr(row, 'tradeCount24h'))}`,
       state.view === 'rising'
-        ? `1h Burst ${row.burstVolume1h.toFixed(2)}x`
-        : `24h Delta ${fmtPct(row.volume24hChange * 100)}`,
+        ? `1h Burst ${fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')}`
+        : `24h Delta ${fmtPct((toFiniteNumber(getValueOr(row, 'volume24hChange')) ?? 0) * 100)}`,
     ]
       .filter(Boolean)
       .map((text) => `<span class="badge">${text}</span>`)
@@ -232,19 +262,19 @@ function renderLeaderboard() {
         <h3>${row.coin}</h3>
         <div class="badges">${badges}</div>
         <div class="subline">
-          <span>Price ${fmtPct(row.priceChangePct)}</span>
-          <span>Spread ${row.spreadBps.toFixed(1)} bps</span>
-          <span>4h delta ${fmtPct(row.volume4hChange * 100)}</span>
+          <span>Price ${fmtPct(getValueOr(row, 'priceChangePct'))}</span>
+          <span>Spread ${fmtFixed(getValueOr(row, 'spreadBps'), 1, ' bps')}</span>
+          <span>4h delta ${fmtPct((toFiniteNumber(getValueOr(row, 'volume4hChange')) ?? 0) * 100)}</span>
           ${
             state.view === 'rising'
-              ? `<span>1h burst ${row.burstVolume1h.toFixed(2)}x</span>`
-              : `<span>trades delta ${fmtPct(row.trade24hChange * 100)}</span>`
+              ? `<span>1h burst ${fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')}</span>`
+              : `<span>trades delta ${fmtPct((toFiniteNumber(getValueOr(row, 'trade24hChange')) ?? 0) * 100)}</span>`
           }
         </div>
       </div>
       <div class="leader-score">
-        <strong>${(row.adjustedScore * 100).toFixed(1)}</strong>
-        <div class="bar"><span style="width:${row.adjustedScore * 100}%"></span></div>
+        <strong>${fmtFixed(safeScore(row.adjustedScore) * 100, 1)}</strong>
+        <div class="bar"><span style="width:${safeScore(row.adjustedScore) * 100}%"></span></div>
       </div>
     `;
 
@@ -265,52 +295,52 @@ function renderDetail(coin) {
   document.getElementById('detailTitle').textContent = `${row.coin} 为什么排在前面`;
 
   const metrics = [
-    ['热度分', (row.adjustedScore * 100).toFixed(1)],
+    ['热度分', fmtFixed(safeScore(row.adjustedScore) * 100, 1)],
     ['当前视角', state.view === 'rising' ? 'Rising' : 'Hot'],
-    ['市场分组', row.marketGroup === 'hip3' ? `HIP-3 / ${row.dex.toUpperCase()}` : 'Main Perp'],
-    ['24h 成交额', fmtUsd(row.volume24hUsd)],
-    ['上一24h成交额', fmtUsd(row.previousVolume24hUsd)],
-    ['持仓规模', fmtUsd(row.openInterestUsd)],
-    ['交易笔数', fmtCompact(row.tradeCount24h)],
-    ['上一24h交易笔数', fmtCompact(row.previousTradeCount24h)],
-    ['换手效率', `${row.turnover24h.toFixed(2)}x`],
-    ['换手变化', fmtPct(row.turnover24hChange * 100)],
-    ['24h 成交变化', fmtPct(row.volume24hChange * 100)],
-    ['24h 交易变化', fmtPct(row.trade24hChange * 100)],
-    ['4h 成交变化', fmtPct(row.volume4hChange * 100)],
-    ['4h 交易变化', fmtPct(row.trade4hChange * 100)],
-    ['1h 成交爆发', `${row.burstVolume1h.toFixed(2)}x`],
-    ['1h 交易爆发', `${row.burstTrades1h.toFixed(2)}x`],
-    ['可信度折扣', `${(row.confidenceFactor * 100).toFixed(0)}%`],
-    ['价格变化', fmtPct(row.priceChangePct)],
-    ['盘口价差', `${row.spreadBps.toFixed(2)} bps`],
-    ['订单簿深度', fmtUsd(row.liquidityDepthUsd)],
-    ['资金费率', `${row.fundingAbsBps.toFixed(2)} bps`],
-    ['波动噪音', `${row.realizedVolatilityPct.toFixed(2)}%`],
+    ['市场分组', row.marketGroup === 'hip3' ? `HIP-3 / ${(row.dex || 'hip3').toUpperCase()}` : 'Main Perp'],
+    ['24h 成交额', fmtUsd(getValueOr(row, 'volume24hUsd'))],
+    ['上一24h成交额', fmtUsd(getValueOr(row, 'previousVolume24hUsd'))],
+    ['持仓规模', fmtUsd(getValueOr(row, 'openInterestUsd'))],
+    ['交易笔数', fmtCompact(getValueOr(row, 'tradeCount24h'))],
+    ['上一24h交易笔数', fmtCompact(getValueOr(row, 'previousTradeCount24h'))],
+    ['换手效率', fmtFixed(getValueOr(row, 'turnover24h'), 2, 'x')],
+    ['换手变化', fmtPct((toFiniteNumber(getValueOr(row, 'turnover24hChange')) ?? 0) * 100)],
+    ['24h 成交变化', fmtPct((toFiniteNumber(getValueOr(row, 'volume24hChange')) ?? 0) * 100)],
+    ['24h 交易变化', fmtPct((toFiniteNumber(getValueOr(row, 'trade24hChange')) ?? 0) * 100)],
+    ['4h 成交变化', fmtPct((toFiniteNumber(getValueOr(row, 'volume4hChange')) ?? 0) * 100)],
+    ['4h 交易变化', fmtPct((toFiniteNumber(getValueOr(row, 'trade4hChange')) ?? 0) * 100)],
+    ['1h 成交爆发', fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')],
+    ['1h 交易爆发', fmtFixed(getValueOr(row, 'burstTrades1h'), 2, 'x')],
+    ['可信度折扣', fmtFixed((toFiniteNumber(getValueOr(row, 'confidenceFactor')) ?? 0) * 100, 0, '%')],
+    ['价格变化', fmtPct(getValueOr(row, 'priceChangePct'))],
+    ['盘口价差', fmtFixed(getValueOr(row, 'spreadBps'), 2, ' bps')],
+    ['订单簿深度', fmtUsd(getValueOr(row, 'liquidityDepthUsd'))],
+    ['资金费率', fmtFixed(getValueOr(row, 'fundingAbsBps'), 2, ' bps')],
+    ['波动噪音', fmtFixed(getValueOr(row, 'realizedVolatilityPct'), 2, '%')],
   ];
 
   const breakdownEntries =
     state.view === 'rising'
       ? [
-          ['4h 成交增长', row.risingBreakdown.volumeGrowthScore],
-          ['4h 交易增长', row.risingBreakdown.tradeGrowthScore],
-          ['换手抬升', row.risingBreakdown.turnoverGrowthScore],
-          ['1h 爆发', row.risingBreakdown.burstScore],
-          ['价格动量', row.risingBreakdown.momentumScore],
-          ['盘口质量', row.risingBreakdown.liquidityScore],
-          ['拥挤惩罚', row.risingBreakdown.crowdingPenalty],
-          ['噪音惩罚', row.risingBreakdown.noisePenalty],
+          ['4h 成交增长', row.risingBreakdown?.volumeGrowthScore],
+          ['4h 交易增长', row.risingBreakdown?.tradeGrowthScore],
+          ['换手抬升', row.risingBreakdown?.turnoverGrowthScore],
+          ['1h 爆发', row.risingBreakdown?.burstScore],
+          ['价格动量', row.risingBreakdown?.momentumScore],
+          ['盘口质量', row.risingBreakdown?.liquidityScore],
+          ['拥挤惩罚', row.risingBreakdown?.crowdingPenalty],
+          ['噪音惩罚', row.risingBreakdown?.noisePenalty],
         ]
       : [
-          ['24h 成交变化', row.breakdown.volumeScore],
-          ['24h 交易变化', row.breakdown.oiScore],
-          ['换手变化', row.breakdown.tradeScore],
-          ['4h 窗口变化', row.breakdown.turnoverScore],
-          ['短窗加速', row.breakdown.accelerationScore],
-          ['价格动量', row.breakdown.momentumScore],
-          ['基础活跃度', row.breakdown.liquidityScore],
-          ['拥挤惩罚', row.breakdown.crowdingPenalty],
-          ['噪音惩罚', row.breakdown.noisePenalty],
+          ['24h 成交变化', row.breakdown?.volumeScore],
+          ['24h 交易变化', row.breakdown?.oiScore],
+          ['换手变化', row.breakdown?.tradeScore],
+          ['4h 窗口变化', row.breakdown?.turnoverScore],
+          ['短窗加速', row.breakdown?.accelerationScore],
+          ['价格动量', row.breakdown?.momentumScore],
+          ['基础活跃度', row.breakdown?.liquidityScore],
+          ['拥挤惩罚', row.breakdown?.crowdingPenalty],
+          ['噪音惩罚', row.breakdown?.noisePenalty],
         ];
 
   const detail = document.getElementById('detailContent');
@@ -324,7 +354,7 @@ function renderDetail(coin) {
       }
     </p>
     <div class="reasons">
-      ${row.reasons.map((reason) => `<span class="reason-pill">${reason}</span>`).join('')}
+      ${(row.reasons || []).map((reason) => `<span class="reason-pill">${reason}</span>`).join('')}
     </div>
     <div class="detail-grid">
       ${metrics
@@ -343,8 +373,8 @@ function renderDetail(coin) {
           ([label, value]) => `
             <div class="breakdown-row">
               <span>${label}</span>
-              <div class="bar"><span style="width:${Math.abs(value) * 100}%"></span></div>
-              <strong>${value.toFixed(2)}</strong>
+              <div class="bar"><span style="width:${Math.abs(toFiniteNumber(value) ?? 0) * 100}%"></span></div>
+              <strong>${fmtFixed(value, 2)}</strong>
             </div>`,
         )
         .join('')}
