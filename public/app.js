@@ -119,6 +119,10 @@ function getDataUrl(refresh = false) {
   return `./data/latest.json?v=${cacheKey}`;
 }
 
+function byId(id) {
+  return document.getElementById(id);
+}
+
 function toFiniteNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -199,7 +203,8 @@ function rankedRows() {
 }
 
 function renderSegments() {
-  const root = document.getElementById('segmentTabs');
+  const root = byId('segmentTabs');
+  if (!root) return;
   root.innerHTML = '';
   (state.dataset.strategy.segments || []).forEach((segment) => {
     const button = document.createElement('button');
@@ -217,8 +222,10 @@ function renderSegments() {
 
 function renderCalcRules() {
   const calc = calcDocs.rising;
-  document.getElementById('calcTitle').textContent = calc.title;
-  const root = document.getElementById('calcContent');
+  const title = byId('calcTitle');
+  const root = byId('calcContent');
+  if (!title || !root) return;
+  title.textContent = calc.title;
   root.className = 'calc-content';
   root.innerHTML = `
     <p class="detail-copy">${calc.intro}</p>
@@ -251,7 +258,8 @@ function renderCalcRules() {
 }
 
 function renderFormula() {
-  const formula = document.getElementById('formula');
+  const formula = byId('formula');
+  if (!formula) return;
   formula.innerHTML = '';
   Object.entries(state.weights).forEach(([key, value]) => {
     const chip = document.createElement('span');
@@ -262,7 +270,8 @@ function renderFormula() {
 }
 
 function renderFilters() {
-  const filters = document.getElementById('filters');
+  const filters = byId('filters');
+  if (!filters) return;
   filters.innerHTML = '';
   Object.entries(state.dataset.strategy.filters).forEach(([key, value]) => {
     const chip = document.createElement('span');
@@ -272,7 +281,8 @@ function renderFilters() {
 }
 
 function renderSliders() {
-  const root = document.getElementById('sliders');
+  const root = byId('sliders');
+  if (!root) return;
   root.innerHTML = '';
 
   Object.entries(state.weights).forEach(([key, value]) => {
@@ -308,7 +318,8 @@ function renderSliders() {
 
 function renderLeaderboard() {
   const rows = rankedRows();
-  const container = document.getElementById('leaderboard');
+  const container = byId('leaderboard');
+  if (!container) return;
   container.innerHTML = '';
 
   rows.forEach((row) => {
@@ -364,7 +375,10 @@ function renderDetail(coin) {
   const row = rankedRows().find((item) => item.coin === coin);
   if (!row) return;
 
-  document.getElementById('detailTitle').textContent = `${row.coin} 为什么排在前面`;
+  const detailTitle = byId('detailTitle');
+  const detail = byId('detailContent');
+  if (!detailTitle || !detail) return;
+  detailTitle.textContent = `${row.coin} 为什么排在前面`;
 
   const metrics = [
     ['热度分', fmtFixed(safeScore(row.adjustedScore) * 100, 1)],
@@ -402,7 +416,6 @@ function renderDetail(coin) {
     ['噪音惩罚', row.risingBreakdown?.noisePenalty],
   ];
 
-  const detail = document.getElementById('detailContent');
   detail.className = 'detail-content';
   detail.innerHTML = `
     <p class="detail-copy">
@@ -439,10 +452,15 @@ function renderDetail(coin) {
 
 function updateHeader() {
   const { strategy, generatedAt } = state.dataset;
-  document.getElementById('strategySummary').textContent = strategy.summary;
-  document.getElementById('candidateCount').textContent = `${strategy.candidateCount}+ hip3`;
-  document.getElementById('sourceCount').textContent = `${strategy.dataSources.length} streams`;
-  document.getElementById('updatedAt').textContent = new Date(generatedAt).toLocaleTimeString('zh-CN', {
+  const strategySummary = byId('strategySummary');
+  const candidateCount = byId('candidateCount');
+  const sourceCount = byId('sourceCount');
+  const updatedAt = byId('updatedAt');
+  if (!strategySummary || !candidateCount || !sourceCount || !updatedAt) return;
+  strategySummary.textContent = strategy.summary;
+  candidateCount.textContent = `${strategy.candidateCount}+ hip3`;
+  sourceCount.textContent = `${strategy.dataSources.length} streams`;
+  updatedAt.textContent = new Date(generatedAt).toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -450,7 +468,8 @@ function updateHeader() {
 }
 
 async function loadData(refresh = false) {
-  const button = document.getElementById('refreshBtn');
+  const button = byId('refreshBtn');
+  if (!button) return;
   button.disabled = true;
   button.textContent = refresh ? '刷新中...' : '读取中...';
 
@@ -469,7 +488,10 @@ async function loadData(refresh = false) {
     renderLeaderboard();
     renderCalcRules();
   } catch (error) {
-    document.getElementById('leaderboard').innerHTML = `<div class="metric-note">加载失败：${error.message}</div>`;
+    const leaderboard = byId('leaderboard');
+    if (leaderboard) {
+      leaderboard.innerHTML = `<div class="metric-note">加载失败：${error.message}</div>`;
+    }
   } finally {
     button.disabled = false;
     button.textContent =
@@ -480,18 +502,24 @@ async function loadData(refresh = false) {
   }
 }
 
-document.getElementById('refreshBtn').addEventListener('click', () => {
-  loadData(true);
-});
+const refreshBtn = byId('refreshBtn');
+if (refreshBtn) {
+  refreshBtn.addEventListener('click', () => {
+    loadData(true);
+  });
+}
 
-document.getElementById('resetBtn').addEventListener('click', () => {
-  state.weights = { ...defaultWeights };
-  renderFormula();
-  renderSliders();
-  renderLeaderboard();
-  if (state.selectedCoin) {
-    renderDetail(state.selectedCoin);
-  }
-});
+const resetBtn = byId('resetBtn');
+if (resetBtn) {
+  resetBtn.addEventListener('click', () => {
+    state.weights = { ...defaultWeights };
+    renderFormula();
+    renderSliders();
+    renderLeaderboard();
+    if (state.selectedCoin) {
+      renderDetail(state.selectedCoin);
+    }
+  });
+}
 
 loadData(false);
