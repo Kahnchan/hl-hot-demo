@@ -27,81 +27,10 @@ const state = {
   weights: { ...defaultWeights },
   selectedCoin: null,
   segment: 'all',
-  view: 'hot',
+  view: 'rising',
 };
 
 const calcDocs = {
-  hot: {
-    title: 'Hot 计算规则',
-    intro:
-      'Hot 现在是变化型榜单，优先比较当前24小时相对上一24小时的变化，再辅以近4小时变化。它回答的是：这个资产相比上一阶段，是不是变得更热门了。',
-    formula: `hot_score =
-0.75 * change_score
-+ 0.15 * base_activity_score
-+ 0.10 * liquidity_score
-- 0.03 * crowding_penalty
-- 0.02 * noise_penalty
-
-change_score =
-0.35 * volume_24h_change
-+ 0.25 * trade_24h_change
-+ 0.15 * turnover_24h_change
-+ 0.15 * short_window_change
-+ 0.10 * momentum_score`,
-    steps: [
-      {
-        title: 'Step 1: 取两个时间窗口',
-        body:
-          '从 HL 的 1h candles 里取最近 48 小时数据，然后拆成 当前24h / 上一24h，以及 最近4h / 前4h 两组窗口。',
-      },
-      {
-        title: 'Step 2: 算阶段变化',
-        body:
-          '计算 24h 成交额变化、24h 交易笔数变化、24h 换手变化。换手本质上是 `24h成交额 / OI`，再和上一阶段的换手做对比。',
-      },
-      {
-        title: 'Step 3: 算短窗变化',
-        body:
-          '补一个 4h 变化项，比较 最近4h 和 前4h 的成交、交易变化，防止榜单太慢。',
-      },
-      {
-        title: 'Step 4: 加基础活跃度兜底',
-        body:
-          '即使变化很大，也要看这个资产本身是不是有一定体量和交易深度，所以再轻量加入 `base_activity_score` 和 `liquidity_score`。',
-      },
-      {
-        title: 'Step 5: 扣掉过热和噪音',
-        body:
-          '资金费率太极端会触发 `crowdingPenalty`，波动太乱会触发 `noisePenalty`，避免纯噪音币冲太前。',
-      },
-    ],
-    hlFields: [
-      {
-        source: 'metaAndAssetCtxs',
-        fields: [
-          '`dayNtlVlm` -> 当前24h名义成交额基准',
-          '`openInterest` + `markPx` -> openInterestUsd',
-          '`markPx` + `prevDayPx` -> priceChangePct / priceChangeAbsPct',
-          '`funding` -> fundingAbsBps / crowdingPenalty',
-        ],
-      },
-      {
-        source: 'candleSnapshot (1h, last 48h)',
-        fields: [
-          '`v` -> hourly volume, 用于 current24h / previous24h / last4h / previous4h',
-          '`n` -> hourly trade count, 用于 current24h / previous24h / last4h / previous4h',
-          '`c` -> hourly close, 用于 realizedVolatilityPct',
-        ],
-      },
-      {
-        source: 'l2Book',
-        fields: [
-          '`levels[0][0].px` + `levels[1][0].px` -> spreadBps',
-          '`levels` top 8 bids/asks -> liquidityDepthUsd',
-        ],
-      },
-    ],
-  },
   rising: {
     title: 'Rising 计算规则',
     intro:
@@ -243,24 +172,7 @@ function sliderConfig(key, value) {
 }
 
 function normalizeScore(row, weights) {
-  if (state.view === 'rising') {
-    return safeScore(row.risingScore);
-  }
-  const breakdown = row.breakdown || {};
-  const score =
-    (toFiniteNumber(breakdown.volumeScore) ?? 0) * weights.volumeScore +
-    (toFiniteNumber(breakdown.oiScore) ?? 0) * weights.oiScore +
-    (toFiniteNumber(breakdown.tradeScore) ?? 0) * weights.tradeScore +
-    (toFiniteNumber(breakdown.turnoverScore) ?? 0) * weights.turnoverScore +
-    (toFiniteNumber(breakdown.accelerationScore) ?? 0) *
-      weights.accelerationScore +
-    (toFiniteNumber(breakdown.momentumScore) ?? 0) * weights.momentumScore +
-    (toFiniteNumber(breakdown.liquidityScore) ?? 0) * weights.liquidityScore +
-    (toFiniteNumber(breakdown.crowdingPenalty) ?? 0) *
-      weights.crowdingPenalty +
-    (toFiniteNumber(breakdown.noisePenalty) ?? 0) * weights.noisePenalty;
-
-  return safeScore(score);
+  return safeScore(row.risingScore);
 }
 
 function activeBreakdown(row) {
@@ -303,44 +215,14 @@ function renderSegments() {
   });
 }
 
-function renderViews() {
-  const root = document.getElementById('viewTabs');
-  root.innerHTML = '';
-  (state.dataset.strategy.views || []).forEach((view) => {
-    const button = document.createElement('button');
-    button.className = `segment-tab ${state.view === view.id ? 'active' : ''}`;
-    button.textContent = view.label;
-    button.title = view.description;
-    button.addEventListener('click', () => {
-      state.view = view.id;
-      state.selectedCoin = null;
-      renderViews();
-      renderLeaderboard();
-      renderCalcRules();
-    });
-    root.appendChild(button);
-  });
-}
-
 function renderCalcRules() {
-  const calc = calcDocs[state.view] || calcDocs.hot;
+  const calc = calcDocs.rising;
   document.getElementById('calcTitle').textContent = calc.title;
   const root = document.getElementById('calcContent');
   root.className = 'calc-content';
   root.innerHTML = `
     <p class="detail-copy">${calc.intro}</p>
     <div class="calc-formula"><code>${calc.formula}</code></div>
-    <div class="calc-steps">
-      ${calc.steps
-        .map(
-          (step) => `
-            <article class="calc-step">
-              <h3>${step.title}</h3>
-              <p>${step.body}</p>
-            </article>`,
-        )
-        .join('')}
-    </div>
     <div class="calc-fields">
       ${calc.hlFields
         .map(
@@ -350,6 +232,17 @@ function renderCalcRules() {
               <p>
                 ${group.fields.map((field) => `<span class="calc-field">${field}</span>`).join('<br />')}
               </p>
+            </article>`,
+        )
+        .join('')}
+    </div>
+    <div class="calc-steps">
+      ${calc.steps
+        .map(
+          (step) => `
+            <article class="calc-step">
+              <h3>${step.title}</h3>
+              <p>${step.body}</p>
             </article>`,
         )
         .join('')}
@@ -433,9 +326,7 @@ function renderLeaderboard() {
       `OI ${fmtUsd(row.openInterestUsd)}`,
       `Turnover ${fmtFixed(getValueOr(row, 'turnover24h'), 2, 'x')}`,
       `Trades ${fmtCompact(getValueOr(row, 'tradeCount24h'))}`,
-      state.view === 'rising'
-        ? `1h Burst ${fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')}`
-        : `24h Delta ${fmtPct((toFiniteNumber(getValueOr(row, 'volume24hChange')) ?? 0) * 100)}`,
+      `1h Burst ${fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')}`,
     ]
       .filter(Boolean)
       .map((text) => `<span class="badge">${text}</span>`)
@@ -450,11 +341,7 @@ function renderLeaderboard() {
           <span>Price ${fmtPct(getValueOr(row, 'priceChangePct'))}</span>
           <span>Spread ${fmtFixed(getValueOr(row, 'spreadBps'), 1, ' bps')}</span>
           <span>4h delta ${fmtPct((toFiniteNumber(getValueOr(row, 'volume4hChange')) ?? 0) * 100)}</span>
-          ${
-            state.view === 'rising'
-              ? `<span>1h burst ${fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')}</span>`
-              : `<span>trades delta ${fmtPct((toFiniteNumber(getValueOr(row, 'trade24hChange')) ?? 0) * 100)}</span>`
-          }
+          <span>1h burst ${fmtFixed(getValueOr(row, 'burstVolume1h'), 2, 'x')}</span>
         </div>
       </div>
       <div class="leader-score">
@@ -481,7 +368,7 @@ function renderDetail(coin) {
 
   const metrics = [
     ['热度分', fmtFixed(safeScore(row.adjustedScore) * 100, 1)],
-    ['当前视角', state.view === 'rising' ? 'Rising' : 'Hot'],
+    ['当前视角', 'Rising'],
     ['市场分组', row.marketGroup === 'hip3' ? `HIP-3 / ${(row.dex || 'hip3').toUpperCase()}` : 'Main Perp'],
     ['24h 成交额', fmtUsd(getValueOr(row, 'volume24hUsd'))],
     ['上一24h成交额', fmtUsd(getValueOr(row, 'previousVolume24hUsd'))],
@@ -504,39 +391,22 @@ function renderDetail(coin) {
     ['波动噪音', fmtFixed(getValueOr(row, 'realizedVolatilityPct'), 2, '%')],
   ];
 
-  const breakdownEntries =
-    state.view === 'rising'
-      ? [
-          ['4h 成交增长', row.risingBreakdown?.volumeGrowthScore],
-          ['4h 交易增长', row.risingBreakdown?.tradeGrowthScore],
-          ['换手抬升', row.risingBreakdown?.turnoverGrowthScore],
-          ['1h 爆发', row.risingBreakdown?.burstScore],
-          ['价格动量', row.risingBreakdown?.momentumScore],
-          ['盘口质量', row.risingBreakdown?.liquidityScore],
-          ['拥挤惩罚', row.risingBreakdown?.crowdingPenalty],
-          ['噪音惩罚', row.risingBreakdown?.noisePenalty],
-        ]
-      : [
-          ['24h 成交变化', row.breakdown?.volumeScore],
-          ['24h 交易变化', row.breakdown?.oiScore],
-          ['换手变化', row.breakdown?.tradeScore],
-          ['4h 窗口变化', row.breakdown?.turnoverScore],
-          ['短窗加速', row.breakdown?.accelerationScore],
-          ['价格动量', row.breakdown?.momentumScore],
-          ['基础活跃度', row.breakdown?.liquidityScore],
-          ['拥挤惩罚', row.breakdown?.crowdingPenalty],
-          ['噪音惩罚', row.breakdown?.noisePenalty],
-        ];
+  const breakdownEntries = [
+    ['4h 成交增长', row.risingBreakdown?.volumeGrowthScore],
+    ['4h 交易增长', row.risingBreakdown?.tradeGrowthScore],
+    ['换手抬升', row.risingBreakdown?.turnoverGrowthScore],
+    ['1h 爆发', row.risingBreakdown?.burstScore],
+    ['价格动量', row.risingBreakdown?.momentumScore],
+    ['盘口质量', row.risingBreakdown?.liquidityScore],
+    ['拥挤惩罚', row.risingBreakdown?.crowdingPenalty],
+    ['噪音惩罚', row.risingBreakdown?.noisePenalty],
+  ];
 
   const detail = document.getElementById('detailContent');
   detail.className = 'detail-content';
   detail.innerHTML = `
     <p class="detail-copy">
-      ${
-        state.view === 'rising'
-          ? 'Rising 更像是“最近突然升温”。这里重点看近4小时增长、1小时爆发和换手抬升。'
-          : 'Hot 改成了“较上一时间段变得更热” 的定义。这里重点看当前24h相对上一24h的成交和交易变化。'
-      }
+      Rising 更像是“最近突然升温”。这里重点看近4小时增长、1小时爆发和换手抬升。
     </p>
     <div class="reasons">
       ${(row.reasons || []).map((reason) => `<span class="reason-pill">${reason}</span>`).join('')}
@@ -594,7 +464,6 @@ async function loadData(refresh = false) {
     updateHeader();
     renderFormula();
     renderFilters();
-    renderViews();
     renderSliders();
     renderSegments();
     renderLeaderboard();
